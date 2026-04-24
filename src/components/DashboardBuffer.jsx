@@ -14,64 +14,6 @@ const ASCII_KIRSTEN = [
 "  ╚═╝  ╚═╝ ╚═╝ ╚═╝  ╚═╝ ╚══════╝    ╚═╝    ╚══════╝ ╚═╝  ╚═══╝",
 ];
 
-// Skills radar (SVG)
-export function SkillsRadar({ data }) {
-  // data: [{ n, p }]
-  const n = data.length;
-  const cx = 180, cy = 180, r = 140;
-  const rings = [0.25, 0.5, 0.75, 1.0];
-  function pt(i, f) {
-    const a = (Math.PI * 2 * i) / n - Math.PI / 2;
-    return [cx + Math.cos(a) * r * f, cy + Math.sin(a) * r * f];
-  }
-  const poly = data.map((d, i) => pt(i, d.p / 100).join(",")).join(" ");
-  return (
-    <svg viewBox="0 0 360 360" aria-label="skills radar">
-      {/* rings */}
-      {rings.map((f, i) => (
-        <circle key={i} cx={cx} cy={cy} r={r * f}
-          fill="none"
-          stroke="var(--surface1)"
-          strokeOpacity={0.5}
-          strokeDasharray="2 4"
-        />
-      ))}
-      {/* spokes */}
-      {data.map((_, i) => {
-        const [x, y] = pt(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--surface1)" strokeOpacity={0.5} />;
-      })}
-      {/* polygon */}
-      <polygon
-        points={poly}
-        fill="color-mix(in oklab, var(--mauve) 25%, transparent)"
-        stroke="var(--mauve)"
-        strokeWidth="1.5"
-        style={{ filter: "drop-shadow(0 0 8px color-mix(in oklab, var(--mauve) 40%, transparent))" }}
-      />
-      {/* vertices */}
-      {data.map((d, i) => {
-        const [x, y] = pt(i, d.p / 100);
-        return <circle key={i} cx={x} cy={y} r="3" fill="var(--blue)" />;
-      })}
-      {/* labels */}
-      {data.map((d, i) => {
-        const [x, y] = pt(i, 1.14);
-        const isRight = x > cx + 4;
-        const isLeft = x < cx - 4;
-        const anchor = isRight ? "start" : isLeft ? "end" : "middle";
-        return (
-          <text key={i} x={x} y={y} fontSize="11" fill="var(--subtext0)"
-            textAnchor={anchor}
-            dominantBaseline="middle"
-            fontFamily="inherit"
-          >{d.n}</text>
-        );
-      })}
-    </svg>
-  );
-}
-
 // Contribution grid - deterministic pseudo-random
 function Contrib() {
   const cells = [];
@@ -87,49 +29,37 @@ function Contrib() {
     cells.push(lvl);
   }
   return (
-    <>
-      <div className="contrib">
-        {cells.map((l, i) => <div key={i} className={`c ${l ? "l" + l : ""}`} />)}
-      </div>
-      <div className="contrib-meta">
-        <span>last 6 months · 782 contributions</span>
-        <span>longest streak: 41 days</span>
-      </div>
-    </>
+    <div className="contrib">
+      {cells.map((l, i) => <div key={i} className={`c ${l ? "l" + l : ""}`} />)}
+    </div>
   );
 }
 
 // snippet rendering — short preview lines for a tile
 function tileLines(kind) {
-  const { EXPERIENCE, PROJECTS, OSS_REPOS, CONTACT, PROFILE } = PORTFOLIO_DATA;
+  const { OSS_REPOS } = PORTFOLIO_DATA;
   if (kind === "experience") {
     const out = [];
-    out.push({ t: "cm", v: "// experience.ts" });
-    EXPERIENCE.slice(0, 2).forEach((e) => {
-      out.push({ t: "ln", parts: [
-        { c: "attr", v: e.when + "  " },
-        { c: "fn",   v: e.role },
-        { c: "muted", v: "  " + e.co },
-      ]});
-    });
-    out.push({ t: "cm", v: "// + 2 more roles..." });
+    out.push({ t: "cm", v: "// 3+ years · 3 companies · latest: ONE360" });
+    out.push({ t: "ln", parts: [{ c: "attr", v: "2023 — now    " }, { c: "fn", v: "Software Engineer → Lead Engineer" }] });
+    out.push({ t: "ln", parts: [{ c: "muted", v: "               @ ONE360" }] });
+    out.push({ t: "ln", parts: [{ c: "attr", v: "2023          " }, { c: "fn", v: "Software Engineer Intern" }] });
+    out.push({ t: "ln", parts: [{ c: "muted", v: "               @ Rocket Mortgage" }] });
+    out.push({ t: "ln", parts: [{ c: "attr", v: "2022 — 2023   " }, { c: "fn", v: "Software Engineer Intern" }] });
+    out.push({ t: "ln", parts: [{ c: "muted", v: "               @ Grid Protection Alliance" }] });
     return out;
   }
   if (kind === "projects") {
     const out = [];
-    out.push({ t: "cm", v: "# Selected Projects" });
-    PROJECTS.slice(0, 3).forEach((p) => {
-      out.push({ t: "ln", parts: [
-        { c: "bullet", v: "• " },
-        { c: "yellow-txt", v: p.name },
-        { c: "muted", v: "  " + p.tag },
-      ]});
-    });
+    out.push({ t: "cm", v: "# 3 highlighted projects · production and prototype work" });
+    out.push({ t: "ln", parts: [{ c: "bullet", v: "• " }, { c: "yellow-txt", v: "ONE360 ETL Platform" }, { c: "muted", v: " · 12+ pipelines · C# / .NET" }] });
+    out.push({ t: "ln", parts: [{ c: "bullet", v: "• " }, { c: "yellow-txt", v: "YOLO-OBB Aerial Detection" }, { c: "muted", v: " · CV prototype · PyTorch" }] });
+    out.push({ t: "ln", parts: [{ c: "bullet", v: "• " }, { c: "yellow-txt", v: "OpenSEE Waveform Rendering" }, { c: "muted", v: " · OSS · Three.js" }] });
     return out;
   }
   if (kind === "oss") {
     const out = [];
-    out.push({ t: "cm", v: "// oss.json" });
+    out.push({ t: "cm", v: "// 6 repos · 3.5k stars · MIT licensed" });
     OSS_REPOS.slice(0, 3).forEach((r) => {
       out.push({ t: "ln", parts: [
         { c: "yellow-txt", v: r.name.padEnd(14) },
@@ -141,37 +71,42 @@ function tileLines(kind) {
   }
   if (kind === "education") {
     const out = [];
-    out.push({ t: "cm", v: "# Education" });
+    out.push({ t: "cm", v: "# BS Computer Science · plus self-directed ML study" });
     out.push({ t: "ln", parts: [
-      { c: "attr", v: "2014–2018  " },
-      { c: "fn", v: "B.S. Computer Science" },
+      { c: "fn", v: "University of [Your School]" },
+      { c: "cm", v: " // TODO: fill in" },
+      { c: "fn", v: " · graduated [Year]" },
+      { c: "cm", v: " // TODO: fill in" },
     ]});
-    out.push({ t: "ln", parts: [
-      { c: "muted", v: "  distributed systems · PL theory" },
-    ]});
-    out.push({ t: "ln", parts: [
-      { c: "attr", v: "ongoing    " },
-      { c: "fn", v: "self-directed" },
-    ]});
+    out.push({ t: "ln", parts: [{ c: "muted", v: "Relevant coursework: algorithms, systems, ML foundations" }] });
     return out;
   }
   if (kind === "contact") {
     const out = [];
-    out.push({ t: "cm", v: "#!/usr/bin/env bash" });
-    CONTACT.slice(0, 4).forEach((c) => {
-      out.push({ t: "ln", parts: [
-        { c: "teal-txt", v: c.k.padEnd(10) },
-        { c: "var", v: c.v },
-      ]});
-    });
+    out.push({ t: "cm", v: "#!/usr/bin/env bash  # email, github, linkedin" });
+    out.push({ t: "ln", parts: [
+      { c: "teal-txt", v: "email".padEnd(10) },
+      { c: "var", v: "kirsten@[yourdomain]" },
+      { c: "cm", v: " // TODO: fill in" },
+    ]});
+    out.push({ t: "ln", parts: [
+      { c: "teal-txt", v: "github".padEnd(10) },
+      { c: "var", v: "github.com/[yourhandle]" },
+      { c: "cm", v: " // TODO: fill in" },
+    ]});
+    out.push({ t: "ln", parts: [
+      { c: "teal-txt", v: "linkedin".padEnd(10) },
+      { c: "var", v: "linkedin.com/in/[yourhandle]" },
+      { c: "cm", v: " // TODO: fill in" },
+    ]});
     return out;
   }
   return [];
 }
 
-function Tile({ kind, onOpen, file, range, children, cta }) {
+function Tile({ kind, onOpen, file, range, children, cta, className = "" }) {
   return (
-    <div className="tile" onClick={() => onOpen && onOpen(kind)}>
+    <div className={`tile ${className}`.trim()} onClick={() => onOpen && onOpen(kind)}>
       <div className="tile-hd">
         <span className="f">{file}</span>
         <span className="r">{range || ""}</span>
@@ -217,29 +152,39 @@ function renderTileLines(kind) {
 }
 
 export default function DashboardBuffer({ onOpen, onCommand }) {
-  const { PROFILE, SKILLS } = PORTFOLIO_DATA;
+  const { PROFILE } = PORTFOLIO_DATA;
 
-  // flatten top 8 skills for radar
+  // skill bars
   const radarData = [
-    { n: "TypeScript", p: 95 },
-    { n: "React",      p: 94 },
-    { n: "Node.js",    p: 92 },
-    { n: "Postgres",   p: 88 },
-    { n: "Go",         p: 85 },
-    { n: "Python",     p: 78 },
-    { n: "Rust",       p: 72 },
-    { n: "Docker/K8s", p: 74 },
+    { n: "TypeScript",    p: 80, level: "Expert" },
+    { n: "C# / .NET",     p: 80, level: "Expert" },
+    { n: "Python",        p: 70, level: "Proficient" },
+    { n: "JavaScript",    p: 80, level: "Expert" },
+    { n: "React",         p: 70, level: "Proficient" },
+    { n: "Angular",       p: 60, level: "Proficient" },
+    { n: "Next.js",       p: 60, level: "Proficient" },
+    { n: "Node.js",       p: 60, level: "Proficient" },
+    { n: "SQL",           p: 70, level: "Proficient" },
+    { n: "Azure / CI-CD", p: 80, level: "Expert" },
+    { n: "PyTorch",       p: 30, level: "Learning" },
+    { n: "OpenCV",        p: 40, level: "Working" },
   ];
 
-  const shortcuts = [
+  const primaryShortcuts = [
     { k: ":e experience", lbl: "view work history",   action: () => onOpen("experience") },
     { k: ":e projects",   lbl: "browse projects",     action: () => onOpen("projects") },
     { k: ":e skills",     lbl: "skills breakdown",    action: () => onOpen("skills") },
     { k: ":e oss",        lbl: "open source repos",   action: () => onOpen("oss") },
+  ];
+  const utilityShortcuts = [
     { k: ":e contact",    lbl: "find me",             action: () => onOpen("contact") },
     { k: "<C-p>",         lbl: "telescope finder",    action: () => onCommand && onCommand("telescope") },
     { k: ":help",         lbl: "full command list",   action: () => onCommand && onCommand("help") },
     { k: ":wq",           lbl: "save portfolio",      action: () => onCommand && onCommand("wq") },
+  ];
+  const shortcuts = [
+    ...primaryShortcuts.map((s) => ({ ...s, tier: "primary" })),
+    ...utilityShortcuts.map((s) => ({ ...s, tier: "utility" })),
   ];
 
   return (
@@ -248,21 +193,21 @@ export default function DashboardBuffer({ onOpen, onCommand }) {
         {ASCII_KIRSTEN.join("\n")}
       </div>
       <div className="dash-sub">
-        <span><span className="k">~</span><span className="v"> {PROFILE.role}</span></span>
+        <span><span className="k">~</span><span className="v"> Full Stack Engineer</span></span>
         <span className="dot">·</span>
-        <span><span className="k">@</span><span className="v">{PROFILE.location}</span></span>
+        <span><span className="v">Lead Engineer @ ONE360</span></span>
         <span className="dot">·</span>
-        <span><span className="ok" style={{ color: "var(--green)" }}>● open to conversations</span></span>
+        <span><span className="ok" style={{ color: "var(--green)" }}>● open to ML / AI roles</span></span>
         <span className="dot">·</span>
         <span className="muted">NVIM v0.10.portfolio</span>
       </div>
-      <div style={{ color: "var(--subtext0)", fontSize: 11, marginBottom: 4, paddingLeft: 2, textAlign: "center" }}>
-        <span className="cm">" {PROFILE.tagline}</span>
+      <div style={{ color: "var(--subtext0)", fontSize: 12, marginBottom: 4, paddingLeft: 2, textAlign: "center" }}>
+        <span className="cm">" I ship production systems end-to-end — pipelines, APIs, deployment, and the ML-adjacent infra around them.</span>
       </div>
 
       <div className="dash-shortcuts">
         {shortcuts.map((s, i) => (
-          <div key={i} className="sc" onClick={(e) => { e.stopPropagation(); s.action && s.action(); }}>
+          <div key={i} className={`sc ${s.tier === "utility" ? "utility" : ""}`} onClick={(e) => { e.stopPropagation(); s.action && s.action(); }}>
             <span className="key">{s.k}</span>
             <span className="arrow">→</span>
             <span className="lbl">{s.lbl}</span>
@@ -271,30 +216,29 @@ export default function DashboardBuffer({ onOpen, onCommand }) {
       </div>
 
       <div className="tiles">
-        <Tile kind="experience" file="experience.ts" range="L1-L40" onOpen={onOpen}>
+        <Tile kind="experience" file="experience.ts" range="4 roles" onOpen={onOpen} className="experience-tile">
           {renderTileLines("experience")}
         </Tile>
-        <Tile kind="projects" file="projects.md" range="6 items" onOpen={onOpen}>
+        <Tile kind="projects" file="projects.md" range="3 items" onOpen={onOpen}>
           {renderTileLines("projects")}
         </Tile>
 
-        {/* radar tile spans both columns */}
-        <div className="tile radar-tile" onClick={() => onOpen("skills")}>
+        {/* skills tile (full third column height) */}
+        <div className="tile skills-tile" onClick={() => onOpen("skills")}>
           <div className="tile-hd">
             <span className="f">skills.yaml</span>
-            <span className="r">radar · top 8</span>
+            <span className="r">top</span>
           </div>
-          <div className="radar-wrap">
-            <SkillsRadar data={radarData} />
-            <div className="radar-legend">
-              <div style={{ color: "var(--teal)", fontWeight: 600, marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>
-                proficiency
-              </div>
+          <div className="skills-wrap">
+            <div style={{ color: "var(--teal)", fontWeight: 600, marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 12 }}>
+              PROFICIENCY
+            </div>
+            <div className="radar-legend skills-bars">
               {radarData.map((s) => (
                 <div key={s.n} className="lg-row">
                   <span className="n">{s.n}</span>
-                  <div className="mini-bar"><span style={{ width: s.p + "%" }}></span></div>
-                  <span className="p">{s.p}%</span>
+                  <div className="mini-bar"><span style={{ "--p": s.p / 100 }}></span></div>
+                  <span className="p">{s.level}</span>
                 </div>
               ))}
             </div>
@@ -306,12 +250,12 @@ export default function DashboardBuffer({ onOpen, onCommand }) {
         </div>
 
         {/* contributions tile */}
-        <div className="tile radar-tile" onClick={() => onOpen("oss")}>
+        <div className="tile" onClick={() => onOpen("oss")}>
           <div className="tile-hd">
             <span className="f">~/.git/contributions</span>
             <span className="r">26w × 7d</span>
           </div>
-          <div style={{ padding: "14px 18px" }}>
+          <div className="contrib-bd">
             <Contrib />
           </div>
           <div className="cta">
@@ -320,35 +264,15 @@ export default function DashboardBuffer({ onOpen, onCommand }) {
           </div>
         </div>
 
-        <Tile kind="oss" file="oss.json" range="6 repos" onOpen={onOpen}>
-          {renderTileLines("oss")}
-        </Tile>
-        <Tile kind="education" file="education.md" range="L1-L20" onOpen={onOpen}>
-          {renderTileLines("education")}
-        </Tile>
-        <Tile kind="contact" file="contact.sh" range="6 channels" onOpen={onOpen} cta="→ reach out">
+        <Tile kind="contact" file="contact.sh" range="3 channels" onOpen={onOpen} cta="→ reach out">
           {renderTileLines("contact")}
         </Tile>
-        <div className="tile" onClick={() => onCommand && onCommand("help")}>
-          <div className="tile-hd">
-            <span className="f">:help portfolio.txt</span>
-            <span className="r">commands</span>
-          </div>
-          <div className="tile-bd">
-            <span className="ln"><span className="lnum"> 1</span><span className="cm">// try these</span></span>
-            <span className="ln"><span className="lnum"> 2</span><span style={{color:"var(--yellow)",fontWeight:600}}>:q</span><span className="muted">         press to quit</span></span>
-            <span className="ln"><span className="lnum"> 3</span><span style={{color:"var(--yellow)",fontWeight:600}}>:wq</span><span className="muted">        save with confetti</span></span>
-            <span className="ln"><span className="lnum"> 4</span><span style={{color:"var(--yellow)",fontWeight:600}}>:make</span><span className="muted">      build artifact</span></span>
-            <span className="ln"><span className="lnum"> 5</span><span style={{color:"var(--yellow)",fontWeight:600}}>↑↑↓↓←→←→ba</span><span className="muted">   ???</span></span>
-          </div>
-          <div className="cta">
-            <span>→ full :help</span>
-            <span className="k">?</span>
-          </div>
-        </div>
+        <Tile kind="education" file="education.md" range="1 degree" onOpen={onOpen}>
+          {renderTileLines("education")}
+        </Tile>
       </div>
 
-      <div style={{ color: "var(--overlay0)", fontSize: 10, marginTop: 4, textAlign: "center" }}>
+      <div style={{ color: "var(--overlay0)", fontSize: 12, marginTop: 4, textAlign: "center" }}>
         -- dashboard --
       </div>
     </div>

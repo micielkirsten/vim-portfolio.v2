@@ -3,7 +3,7 @@
 // ============================================================
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { PORTFOLIO_DATA } from "./data/portfolioData";
-import { BufferBody, PreviewBuffer, renderBuffer } from "./buffers/buffers";
+import { BufferBody, PreviewBuffer, ReaderBuffer, renderBuffer } from "./buffers/buffers";
 import DashboardBuffer from "./components/DashboardBuffer";
 import MobileView from "./components/MobileView";
 import {
@@ -26,6 +26,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 const KONAMI = ["ArrowUp","ArrowUp","ArrowDown","ArrowDown","ArrowLeft","ArrowRight","ArrowLeft","ArrowRight","b","a"];
+const WINDOW_POS_KEY = "portfolio-window-position";
+const MIN_VISIBLE_WINDOW_PX = 100;
+const DRAG_START_THRESHOLD_PX = 3;
 
 function getStored(key, fallback = null) {
   try {
@@ -42,7 +45,7 @@ function setStored(key, value) {
   } catch {}
 }
 
-function StatusLine({ mode, activeFile, cur, total, branch, style }) {
+function StatusLine({ mode, activeFile, cur, total, branch, style, viewMode = "edit" }) {
   const modeLabel = {
     NORMAL: "NORMAL", INSERT: "INSERT", VISUAL: "VISUAL", COMMAND: "COMMAND", MACRO: "MACRO-@q",
   }[mode] || "NORMAL";
@@ -56,6 +59,7 @@ function StatusLine({ mode, activeFile, cur, total, branch, style }) {
       <div className="statusline">
         <div className={`sl-block ${modeCls}`}>{modeLabel}</div>
         <div className="sl-block sl-spacer" style={{ color: "var(--overlay1)", fontWeight: 400 }}>&nbsp;{activeFile}</div>
+        {viewMode === "reader" && <div className="sl-block sl-reader">READER</div>}
         <div className="sl-block sl-pct">{total ? Math.round(((cur + 1) / total) * 100) : 0}%</div>
       </div>
     );
@@ -70,7 +74,11 @@ function StatusLine({ mode, activeFile, cur, total, branch, style }) {
         <div className="sl-block sl-spacer"></div>
         <div className="sl-block sl-ft">utf-8 · unix</div>
         <div className="sl-block sl-ft">javascript</div>
-        <div className="sl-block sl-pos">{cur + 1}:{1}</div>
+        {viewMode === "reader" ? (
+          <div className="sl-block sl-reader">READER</div>
+        ) : (
+          <div className="sl-block sl-pos">{cur + 1}:{1}</div>
+        )}
         <div className="sl-block sl-pct">{total ? Math.round(((cur + 1) / total) * 100) : 0}%</div>
       </div>
     );
@@ -86,7 +94,11 @@ function StatusLine({ mode, activeFile, cur, total, branch, style }) {
         &nbsp;{activeFile}
       </div>
       <div className="sl-block sl-ft">UTF-8</div>
-      <div className="sl-block sl-pos">Ln {cur + 1}, Col 1</div>
+      {viewMode === "reader" ? (
+        <div className="sl-block sl-reader">READER</div>
+      ) : (
+        <div className="sl-block sl-pos">Ln {cur + 1}, Col 1</div>
+      )}
       <div className="sl-block sl-pct">{total ? Math.round(((cur + 1) / total) * 100) : 0}%</div>
     </div>
   );
@@ -115,7 +127,7 @@ function FileTree({ files, activeKind, focusedKind, onOpen, hidden, onFocus, pwd
               <div
                 key={f.id}
                 className={`tree-row ${active ? "active" : ""} ${focused ? "focused" : ""}`}
-                onClick={() => onOpen(f.kind)}
+                onClick={() => onOpen(f.kind, "explorer")}
                 onMouseEnter={() => onFocus && onFocus(f.kind)}
               >
                 <span className="chev"> </span>
@@ -139,7 +151,7 @@ function FileTree({ files, activeKind, focusedKind, onOpen, hidden, onFocus, pwd
   );
 }
 
-function Pane({ focused, title, meta, children, onFocus }) {
+function Pane({ focused, title, meta, children, onFocus, modeHint = "" }) {
   return (
     <div className={`pane ${focused ? "focused" : ""}`} onMouseDown={onFocus}>
       <div className="pane-header">
@@ -152,6 +164,7 @@ function Pane({ focused, title, meta, children, onFocus }) {
         <span className="spacer"></span>
         <span className="meta">{meta}</span>
       </div>
+      {modeHint ? <div className="pane-mode-hint">{modeHint}</div> : null}
       <div className="buffer">{children}</div>
     </div>
   );
@@ -183,8 +196,57 @@ export default function App() {
   const [tweakEdit, setTweakEdit] = useState(false);
   const [showHintBar, setShowHintBar] = useState(() => !getStored("vim-hint-dismissed"));
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [windowPos, setWindowPos] = useState({ x: 0, y: 0 });
+  const [windowDragging, setWindowDragging] = useState(false);
+  const [windowResetAnimating, setWindowResetAnimating] = useState(false);
   const konamiBuf = useRef([]);
   const cmdInputRef = useRef(null);
+  const appRef = useRef(null);
+  const windowPosRef = useRef(windowPos);
+  const windowResetTimerRef = useRef(null);
+  const dragRef = useRef({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startPos: { x: 0, y: 0 },
+    moved: false,
+  });
+
+  useEffect(() => { windowPosRef.current = windowPos; }, [windowPos]);
+
+  const clampWindowPosWithMetrics = useCallback((candidate, metrics) => {
+    const minX = MIN_VISIBLE_WINDOW_PX - metrics.baseLeft - metrics.width;
+    const maxX = metrics.viewportWidth - MIN_VISIBLE_WINDOW_PX - metrics.baseLeft;
+    const minYVisible = MIN_VISIBLE_WINDOW_PX - metrics.baseTop - metrics.height;
+    const minYTitle = -metrics.baseTop;
+    const minY = Math.max(minYVisible, minYTitle);
+    const maxY = metrics.viewportHeight - MIN_VISIBLE_WINDOW_PX - metrics.baseTop;
+    return {
+      x: Math.min(maxX, Math.max(minX, candidate.x)),
+      y: Math.min(maxY, Math.max(minY, candidate.y)),
+    };
+  }, []);
+
+  const getWindowMetrics = useCallback(() => {
+    const el = appRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const pos = windowPosRef.current;
+    return {
+      width: rect.width,
+      height: rect.height,
+      baseLeft: rect.left - pos.x,
+      baseTop: rect.top - pos.y,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  }, []);
+
+  const clampWindowPos = useCallback((candidate) => {
+    const metrics = getWindowMetrics();
+    if (!metrics) return candidate;
+    return clampWindowPosWithMetrics(candidate, metrics);
+  }, [clampWindowPosWithMetrics, getWindowMetrics]);
 
   // mobile listener
   useEffect(() => {
@@ -193,19 +255,83 @@ export default function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // restore persisted window position on desktop, if still valid
+  useEffect(() => {
+    if (isMobile || !appRef.current) return;
+    const raw = getStored(WINDOW_POS_KEY);
+    if (!raw) return;
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+    if (
+      !parsed ||
+      typeof parsed.x !== "number" ||
+      typeof parsed.y !== "number" ||
+      !Number.isFinite(parsed.x) ||
+      !Number.isFinite(parsed.y)
+    ) return;
+    const clamped = clampWindowPos(parsed);
+    const withinBounds = Math.abs(clamped.x - parsed.x) < 0.5 && Math.abs(clamped.y - parsed.y) < 0.5;
+    if (withinBounds) setWindowPos(parsed);
+  }, [isMobile, clampWindowPos]);
+
+  // persist window position on desktop
+  useEffect(() => {
+    if (isMobile) return;
+    setStored(WINDOW_POS_KEY, JSON.stringify(windowPos));
+  }, [isMobile, windowPos]);
+
+  // keep current window position valid across viewport changes
+  useEffect(() => {
+    if (isMobile) return;
+    const onResize = () => {
+      setWindowPos((prev) => {
+        const next = clampWindowPos(prev);
+        if (Math.abs(next.x - prev.x) < 0.5 && Math.abs(next.y - prev.y) < 0.5) return prev;
+        return next;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [isMobile, clampWindowPos]);
+
   // tab bar = open buffers
   const [openBuffers, setOpenBuffers] = useState(() => {
     try { return JSON.parse(getStored("vim-buffers", "null")) || ["dashboard"]; }
     catch { return ["dashboard"]; }
   });
+  const [bufferViewModes, setBufferViewModes] = useState(() => ({ dashboard: "edit" }));
   useEffect(() => { setStored("vim-buffers", JSON.stringify(openBuffers)); }, [openBuffers]);
 
+  const setBufferViewMode = useCallback((kind, view) => {
+    if (kind === "dashboard") return;
+    setBufferViewModes((m) => (m[kind] === view ? m : { ...m, [kind]: view }));
+  }, []);
+
+  const getBufferViewMode = useCallback((kind) => {
+    if (kind === "dashboard") return "edit";
+    return bufferViewModes[kind] || "reader";
+  }, [bufferViewModes]);
+
+  const setActiveBufferViewMode = useCallback((view) => {
+    if (activeKind === "dashboard") return;
+    setBufferViewMode(activeKind, view);
+  }, [activeKind, setBufferViewMode]);
+
   // open buffer + add to tabs
-  const openBuffer = useCallback((kind) => {
+  const openBuffer = useCallback((kind, source = "command") => {
     setActiveKind(kind);
     setPreviewKind(kind);
     setOpenBuffers((bufs) => bufs.includes(kind) ? bufs : [...bufs, kind]);
-    setCursors((c) => ({ ...c, main: 0 }));
+    if (kind !== "dashboard") {
+      setBufferViewModes((m) => {
+        const hasMode = Boolean(m[kind]);
+        const forceReader = source === "explorer" || source === "dashboard" || source === "command" || source === "telescope" || (source === "tab" && !hasMode);
+        if (forceReader) return m[kind] === "reader" ? m : { ...m, [kind]: "reader" };
+        if (hasMode) return m;
+        return { ...m, [kind]: "reader" };
+      });
+    }
+    if (source !== "tab") setCursors((c) => ({ ...c, main: 0 }));
   }, []);
 
   const closeBuffer = useCallback((kind, e) => {
@@ -243,7 +369,7 @@ export default function App() {
         help: "help",
       };
       const k = map[name.toLowerCase()];
-      if (k) { openBuffer(k); setCmdMsg({ text: `"${name}" ${k === "help" ? "" : "[readonly]"}`, cls: "ok" }); return true; }
+      if (k) { openBuffer(k, "command"); setCmdMsg({ text: `"${name}" ${k === "help" ? "" : "[reader]"}`, cls: "ok" }); return true; }
       return false;
     };
 
@@ -280,11 +406,25 @@ export default function App() {
       setOpts({ ...opts, showTree: !opts.showTree });
       setCmdMsg({ text: "tree toggled", cls: "ok" }); return;
     }
+    if (head === ":reader") {
+      if (activeKind !== "dashboard") {
+        setActiveBufferViewMode("reader");
+        setCmdMsg({ text: "reader mode", cls: "ok" });
+      }
+      return;
+    }
+    if (head === ":edit" && !arg) {
+      if (activeKind !== "dashboard") {
+        setActiveBufferViewMode("edit");
+        setCmdMsg({ text: "edit mode", cls: "ok" });
+      }
+      return;
+    }
     if (head === ":only") {
       setOpts({ ...opts, split: !opts.split });
       setCmdMsg({ text: opts.split ? "preview closed" : "preview opened", cls: "ok" }); return;
     }
-    if (head === ":e" || head === ":edit" || head === ":o" || head === ":open") {
+    if (head === ":e" || head === ":o" || head === ":open" || (head === ":edit" && !!arg)) {
       if (!arg) { setCmdMsg({ text: "E32: No file name", cls: "err" }); return; }
       if (!openByAlias(arg)) setCmdMsg({ text: `E447: Can't find file "${arg}"`, cls: "err" });
       return;
@@ -314,7 +454,7 @@ export default function App() {
     if (openByAlias(head.replace(/^:/, ""))) return;
 
     setCmdMsg({ text: `E492: Not an editor command: ${c}`, cls: "err" });
-  }, [opts, openBuffers, activeKind, openBuffer]);
+  }, [opts, openBuffers, activeKind, openBuffer, setActiveBufferViewMode]);
 
   // global keyboard
   useEffect(() => {
@@ -338,7 +478,17 @@ export default function App() {
         return;
       }
 
-      if (e.key === "Escape") { setMode("NORMAL"); setCmd(""); setCmdMsg({ text: "-- NORMAL --", cls: "" }); return; }
+      if (e.key === "Escape") {
+        if (activeKind !== "dashboard") {
+          setActiveBufferViewMode("reader");
+          setCmdMsg({ text: "-- READER --", cls: "" });
+        } else {
+          setCmdMsg({ text: "-- NORMAL --", cls: "" });
+        }
+        setMode("NORMAL");
+        setCmd("");
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key === "p") { e.preventDefault(); setTelescopeOpen(true); return; }
 
@@ -360,7 +510,17 @@ export default function App() {
         return;
       }
 
-      if (e.key === "i") { setMode("INSERT"); setCmdMsg({ text: "-- INSERT --  (readonly portfolio, nothing to insert)", cls: "" }); return; }
+      if (e.key === "i") {
+        if (activeKind !== "dashboard") {
+          setActiveBufferViewMode("edit");
+          setMode("NORMAL");
+          setCmdMsg({ text: "-- EDIT --  press Esc for reader", cls: "ok" });
+          return;
+        }
+        setMode("INSERT");
+        setCmdMsg({ text: "-- INSERT --  (readonly portfolio, nothing to insert)", cls: "" });
+        return;
+      }
       if (e.key === "v") { setMode("VISUAL"); setCmdMsg({ text: "-- VISUAL --  (nothing to select, but looks cool)", cls: "" }); return; }
 
       // pane/nav
@@ -387,11 +547,12 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, telescopeOpen, helpOpen, makeOpen, focusedPane, opts.split, openBuffers, activeKind]);
+  }, [mode, telescopeOpen, helpOpen, makeOpen, focusedPane, opts.split, openBuffers, activeKind, setActiveBufferViewMode]);
 
   // compute buffer content
   const mainLines = useMemo(() => renderBuffer(activeKind), [activeKind]);
   const previewLines = useMemo(() => PreviewBuffer({ kind: previewKind }), [previewKind]);
+  const activeViewMode = getBufferViewMode(activeKind);
 
   // clamp cursors
   useEffect(() => { setCursors((c) => ({ ...c, main: Math.min(c.main, Math.max(0, mainLines.length - 1)) })); }, [mainLines.length]);
@@ -432,9 +593,100 @@ export default function App() {
       else if (r.action === "quit") setCmdMsg({ text: 'E37: No write since last change (add ! to override)', cls: "err" });
       else if (r.action.startsWith("theme:")) updateOpts({ ...opts, theme: r.action.split(":")[1] });
     } else {
-      openBuffer(r.kind);
+      openBuffer(r.kind, "telescope");
     }
   }
+
+  const themeCycle = () => {
+    const ts = ["cream","mocha","latte","gruvbox","tokyonight"];
+    const i = ts.indexOf(opts.theme);
+    updateOpts({ ...opts, theme: ts[(i + 1) % ts.length] });
+  };
+
+  const blockTrafficLight = (e) => { e.stopPropagation(); };
+  const blockTrafficLightClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const isTitlebarControlTarget = (target) => (
+    Boolean(target && target.closest && target.closest("button, .lights .dot"))
+  );
+
+  const onTitlebarPointerDown = (e) => {
+    if (isMobile) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (isTitlebarControlTarget(e.target)) return;
+    setWindowResetAnimating(false);
+    if (windowResetTimerRef.current) {
+      clearTimeout(windowResetTimerRef.current);
+      windowResetTimerRef.current = null;
+    }
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPos: windowPosRef.current,
+      moved: false,
+    };
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onTitlebarPointerMove = (e) => {
+    const drag = dragRef.current;
+    if (drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < DRAG_START_THRESHOLD_PX) return;
+      drag.moved = true;
+      setWindowDragging(true);
+    }
+    const next = clampWindowPos({ x: drag.startPos.x + dx, y: drag.startPos.y + dy });
+    setWindowPos(next);
+  };
+
+  const endTitlebarPointerDrag = (e) => {
+    const drag = dragRef.current;
+    if (drag.pointerId !== e.pointerId) return;
+    if (e.currentTarget && e.currentTarget.releasePointerCapture) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    }
+    dragRef.current = {
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      startPos: windowPosRef.current,
+      moved: false,
+    };
+    setWindowDragging(false);
+  };
+
+  const onTitlebarDoubleClick = (e) => {
+    if (isMobile) return;
+    if (isTitlebarControlTarget(e.target)) return;
+    setWindowDragging(false);
+    dragRef.current = {
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      startPos: windowPosRef.current,
+      moved: false,
+    };
+    setWindowResetAnimating(true);
+    setWindowPos({ x: 0, y: 0 });
+    if (windowResetTimerRef.current) clearTimeout(windowResetTimerRef.current);
+    windowResetTimerRef.current = setTimeout(() => {
+      setWindowResetAnimating(false);
+      windowResetTimerRef.current = null;
+    }, 220);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (windowResetTimerRef.current) clearTimeout(windowResetTimerRef.current);
+    };
+  }, []);
 
   if (isMobile) {
     return <MobileView theme={opts.theme} onToggleTheme={() => {
@@ -444,35 +696,67 @@ export default function App() {
     }} />;
   }
 
-  const themeCycle = () => {
-    const ts = ["cream","mocha","latte","gruvbox","tokyonight"];
-    const i = ts.indexOf(opts.theme);
-    updateOpts({ ...opts, theme: ts[(i + 1) % ts.length] });
-  };
-
   return (
     <>
-      <div className="desktop-widget badge">
-        <div>~ portfolio</div>
-        <div className="name">Kirsten — Full Stack Engineer</div>
-      </div>
       <DesktopClock />
       <div className="desktop-widget note">
         <div className="h">post-it</div>
-        press <span style={{fontFamily:"inherit", background:"#f2d572", padding:"0 4px", borderRadius:2}}>Ctrl+P</span> for finder, <span style={{background:"#f2d572",padding:"0 4px",borderRadius:2}}>:help</span> for commands, or click around.
+        press <span style={{fontFamily:"inherit", background:"color-mix(in oklab, #f2d572 85%, white)", padding:"0 4px", borderRadius:2}}>Ctrl+P</span> for finder, <span style={{background:"color-mix(in oklab, #f2d572 85%, white)",padding:"0 4px",borderRadius:2}}>:help</span> for commands, or click around.
+        <div className="note-ps">p.s. try moving the window around</div>
       </div>
-      <div className="app">
-        <div className="titlebar">
+      <div className="desktop-widget hidden-sticky" role="note" aria-label="hidden sticky note with cat photo">
+        <div className="hidden-sticky-photos">
+          <figure className="hidden-sticky-cat">
+            <img src="/images/Louis.png" alt="" className="hidden-sticky-photo" />
+            <figcaption className="hidden-sticky-name">Louis</figcaption>
+          </figure>
+          <figure className="hidden-sticky-cat">
+            <img src="/images/Carl.png" alt="" className="hidden-sticky-photo" />
+            <figcaption className="hidden-sticky-name">Carl</figcaption>
+          </figure>
+        </div>
+        <div className="hidden-sticky-text">
+          the supervisors 🐾
+          <br />
+          (they review every PR)
+        </div>
+      </div>
+      <div
+        className="app"
+        ref={appRef}
+        style={{
+          transform: `translate3d(${windowPos.x}px, ${windowPos.y}px, 0)`,
+          transition: windowResetAnimating ? "transform 200ms ease-out" : "none",
+          userSelect: windowDragging ? "none" : "auto",
+        }}
+      >
+        <div
+          className="titlebar"
+          onPointerDown={onTitlebarPointerDown}
+          onPointerMove={onTitlebarPointerMove}
+          onPointerUp={endTitlebarPointerDrag}
+          onPointerCancel={endTitlebarPointerDrag}
+          onDoubleClick={onTitlebarDoubleClick}
+          style={{ cursor: windowDragging ? "grabbing" : "default" }}
+        >
           <div className="lights">
-            <span className="dot close" onClick={() => runCommand(":q")} title=":q"></span>
-            <span className="dot min" title="min"></span>
-            <span className="dot max" onClick={() => setOpts({ ...opts, split: !opts.split })} title="toggle split"></span>
+            <span className="dot close" onPointerDown={blockTrafficLight} onClick={blockTrafficLightClick} title="close"></span>
+            <span className="dot min" onPointerDown={blockTrafficLight} onClick={blockTrafficLightClick} title="minimize"></span>
+            <span className="dot max" onPointerDown={blockTrafficLight} onClick={blockTrafficLightClick} title="maximize"></span>
+            <button className="theme-toggle" onClick={() => setTelescopeOpen(true)} title="Ctrl-P">
+              <span style={{ color: "var(--mauve)" }}>🔭</span><span>find</span>
+            </button>
           </div>
           <div className="title">
             <span className="crumb">~/</span><span className="pwd">kirsten</span><span className="crumb">/portfolio</span>
             <span className="crumb"> — </span><span>{activeFile}</span>
           </div>
-          <div className="right">nvim · ttys000</div>
+          <div className="right">
+            <button className="theme-toggle" onClick={themeCycle} title="cycle colorscheme (:colorscheme)">
+              <span className="dot"></span><span>{opts.theme}</span>
+            </button>
+            <span className="session">nvim · ttys000</span>
+          </div>
         </div>
         {/* tab / buffer line */}
       <div className="tabline">
@@ -482,21 +766,15 @@ export default function App() {
             <div
               key={b}
               className={`tab ${b === activeKind ? "active" : ""}`}
-              onClick={() => { setActiveKind(b); setPreviewKind(b); }}
+              onClick={() => openBuffer(b, "tab")}
             >
-              <span style={{ color: "var(--overlay0)", fontSize: 10 }}>{i + 1}</span>
+              <span style={{ color: "var(--overlay0)", fontSize: 12 }}>{i + 1}</span>
               <span>{f ? f.label : b}</span>
               <button className="close" onClick={(e) => closeBuffer(b, e)}>×</button>
             </div>
           );
         })}
         <div className="tabline-right">
-          <button className="theme-toggle" onClick={themeCycle} title="cycle colorscheme (:colorscheme)">
-            <span className="dot"></span><span>{opts.theme}</span>
-          </button>
-          <button className="theme-toggle" onClick={() => setTelescopeOpen(true)} title="Ctrl-P">
-            <span style={{ color: "var(--mauve)" }}>🔭</span><span>find</span>
-          </button>
           <button className="theme-toggle" onClick={() => setHelpOpen(true)} title=":help">
             <span style={{ color: "var(--yellow)" }}>?</span><span>help</span>
           </button>
@@ -522,11 +800,12 @@ export default function App() {
             title={activeFile}
             meta={<><span className="k">{activeKind === "dashboard" ? "dashboard" : "js"}</span><span>spaces: 2</span><span>utf-8</span></>}
             onFocus={() => setFocusedPane("main")}
+            modeHint={activeKind !== "dashboard" ? (activeViewMode === "reader" ? "[READER]  press i to edit" : "[EDIT]  press Esc for reader") : ""}
           >
             {activeKind === "dashboard" ? (
               <div className="buffer" style={{ display: "block" }}>
                 <DashboardBuffer
-                  onOpen={openBuffer}
+                  onOpen={(kind) => openBuffer(kind, "dashboard")}
                   onCommand={(c) => {
                     if (c === "help") setHelpOpen(true);
                     else if (c === "telescope") setTelescopeOpen(true);
@@ -534,6 +813,11 @@ export default function App() {
                   }}
                 />
               </div>
+            ) : activeViewMode === "reader" ? (
+              <ReaderBuffer
+                kind={activeKind}
+                lines={mainLines}
+              />
             ) : (
               <BufferBody
                 lines={mainLines}
@@ -570,6 +854,7 @@ export default function App() {
         total={(focusedPane === "main" ? mainLines : previewLines).length}
         branch="main"
         style={opts.statusline}
+        viewMode={activeViewMode}
       />
 
       {/* command line */}

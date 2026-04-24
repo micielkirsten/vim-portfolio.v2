@@ -118,7 +118,7 @@ export function Telescope({ onClose, onPick }) {
             >
               <span className="ico">{r.kind === "action" ? "⚡" : "▪"}</span>
               <span>{highlight(r.label, r._m)}</span>
-              <span style={{ marginLeft: "auto", color: "var(--overlay0)", fontSize: 11 }}>{r.hint}</span>
+              <span style={{ marginLeft: "auto", color: "var(--overlay0)", fontSize: 12 }}>{r.hint}</span>
             </div>
           ))}
         </div>
@@ -144,7 +144,7 @@ export function HelpOverlay({ onClose }) {
       <div className="overlay-buf" onClick={(e) => e.stopPropagation()}>
         <header>
           <span className="t">:help portfolio.txt</span>
-          <span style={{ color: "var(--overlay1)", fontSize: 11 }}>— press Esc to close</span>
+          <span style={{ color: "var(--overlay1)", fontSize: 12 }}>— press Esc to close</span>
           <button className="close" onClick={onClose}>×</button>
         </header>
         <div className="body">
@@ -184,7 +184,7 @@ export function MakeOverlay({ onClose }) {
       <div className="overlay-buf" onClick={(e) => e.stopPropagation()}>
         <header>
           <span className="t">:make</span>
-          <span style={{ color: "var(--overlay1)", fontSize: 11 }}>— building portfolio...</span>
+          <span style={{ color: "var(--overlay1)", fontSize: 12 }}>— building portfolio...</span>
           <button className="close" onClick={onClose}>×</button>
         </header>
         <div className="body" style={{ fontFamily: "inherit", fontSize: 13 }}>

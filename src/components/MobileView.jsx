@@ -104,7 +104,7 @@ export default function MobileView({ theme, onToggleTheme }) {
             {g.items.map(it => (
               <div key={it.n} className="skill-row">
                 <span className="n">{it.n}</span>
-                <div className="bar"><span style={{ width: it.p + "%" }}></span></div>
+                <div className="bar"><span style={{ "--p": it.p / 100 }}></span></div>
                 <span className="pct">{it.p}%</span>
               </div>
             ))}
@@ -157,10 +157,10 @@ export default function MobileView({ theme, onToggleTheme }) {
       </div>
 
       <div className="mstatus">
-        <div className="b" style={{ background: "var(--blue)", color: "var(--crust)", fontWeight: 700 }}>NORMAL</div>
+        <div className="b" style={{ background: "var(--blue)", color: "var(--on-accent)", fontWeight: 700 }}>NORMAL</div>
         <div className="b" style={{ background: "var(--surface1)", color: "var(--subtext1)" }}>~/{active}</div>
         <div className="b" style={{ flex: 1, background: "var(--mantle)" }}></div>
-        <div className="b" style={{ background: "var(--blue)", color: "var(--crust)" }}>mobile</div>
+        <div className="b" style={{ background: "var(--blue)", color: "var(--on-accent)" }}>mobile</div>
       </div>
     </div>
   );
